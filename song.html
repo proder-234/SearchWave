@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>SearchWave</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="static/style.css">
+
+</head>
+
+<body>
+
+    <div class="topbar">
+        <a class="back-btn" href="index.html">← Back</a>
+        <span class="logo">SearchWave</span>
+    </div>
+
+    <div class="song-page" id="song-page">
+        <div class="status-msg">
+            <div class="spinner"></div>Loading…
+        </div>
+    </div>
+
+    <script>
+
+        var params = new URLSearchParams(window.location.search);
+        var songId = parseInt(params.get('id'), 10);
+
+        fetch('js/songs.json')
+
+            .then(function (r) { return r.json(); })
+
+            .then(function (songs) {
+
+                var song = songs[songId];
+
+                if (!song) {
+
+                    document.getElementById('song-page').innerHTML =
+                        '<div class="status-msg">Song not found.</div>';
+
+                    return;
+
+                }
+
+                document.title = song.Song + ' – SearchWave';
+
+                var words = String(song.Lyrics || "")
+                    .split(/\s+/)
+                    .filter(Boolean);
+
+                var lyricsHtml = '';
+
+                for (var i = 0; i < words.length; i += 10) {
+
+                    lyricsHtml +=
+                        '<p>' + words.slice(i, i + 10).join(' ') + '</p>';
+
+                }
+
+                document.getElementById('song-page').innerHTML =
+
+                    '<h1 class="song-title">' + song.Song + '</h1>' +
+
+                    '<div class="lyrics">' + lyricsHtml + '</div>';
+
+            })
+
+            .catch(function () {
+
+                document.getElementById('song-page').innerHTML =
+                    '<div class="status-msg">Could not load song data.</div>';
+
+            });
+
+    </script>
+
+</body>
+
+</html>

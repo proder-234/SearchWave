@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SearchWave</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:ital,wght@0,300;0,400;1,300&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="static/style.css">
+
+</head>
+
+<body>
+
+    <div class="hero" id="hero">
+
+        <div class="logo">SearchWave</div>
+        <div class="tagline">Web & Music Search Engine</div>
+
+        <div class="tabs">
+            <button class="tab active" id="tab-web" onclick="setMode('web')">🌐 Web Search</button>
+            <button class="tab" id="tab-local" onclick="setMode('local')">🎵 Lyrics Search</button>
+        </div>
+
+        <div class="search-wrap">
+
+            <input class="search-input" id="q" type="text" placeholder="Search the web"
+                onkeydown="if(event.key==='Enter') doSearch()" />
+
+            <button class="search-btn" onclick="doSearch()">
+
+                <svg viewBox="0 0 24 24">
+                    <path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" stroke="white" stroke-width="2"
+                        fill="none" stroke-linecap="round" />
+                </svg>
+
+            </button>
+
+        </div>
+
+    </div>
+
+    <div id="results-section"></div>
+
+    <script>
+
+        var mode = 'web';
+        var songs = [];
+        var songsLoaded = false;
+
+        /* LOAD SONG DATA + BUILD FAST SEARCH FIELDS */
+
+        fetch('js/songs.json')
+
+            .then(function (r) { return r.json(); })
+
+            .then(function (data) {
+
+                songs = data.map(function (s, i) {
+
+                    s.__id = i;
+
+                    /* PRECOMPUTED SEARCH FIELDS */
+
+                    s._t = String(s.Song || "").toLowerCase();
+                    s._a = String(s.Artist || "").toLowerCase();
+                    s._l = String(s.Lyrics || "").toLowerCase();
+
+                    return s;
+
+                });
+
+                songsLoaded = true;
+
+                console.log("Songs indexed:", songs.length);
+
+            });
+
+
+        function setMode(m) {
+
+            mode = m;
+
+            document.getElementById('tab-web').classList.toggle('active', m === 'web');
+            document.getElementById('tab-local').classList.toggle('active', m === 'local');
+
+            document.getElementById('q').placeholder =
+                m === 'web'
+                    ? 'Search the web...'
+                    : 'Search songs, artists, lyrics';
+
+            document.getElementById('results-section').innerHTML = '';
+
+        }
+
+
+        function doSearch() {
+
+            var q = document.getElementById('q').value.trim();
+            if (!q) return;
+
+            document.getElementById('hero').classList.add('compact');
+
+            var section = document.getElementById('results-section');
+
+            section.innerHTML =
+                '<div class="status-msg"><div class="spinner"></div>Searching…</div>';
+
+            if (mode === 'web') {
+
+                var ddgUrl = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q);
+
+                var proxies = [
+                    'https://api.allorigins.win/raw?url=' + encodeURIComponent(ddgUrl),
+                    'https://corsproxy.io/?' + encodeURIComponent(ddgUrl)
+                ];
+
+                function tryProxy(i) {
+
+                    if (i >= proxies.length) {
+
+                        section.innerHTML =
+                            '<div class="status-msg">Search unavailable.</div>';
+
+                        return;
+
+                    }
+
+                    fetch(proxies[i])
+
+                        .then(function (r) {
+                            if (!r.ok) throw new Error();
+                            return r.text();
+                        })
+
+                        .then(function (html) {
+
+                            var doc = new DOMParser().parseFromString(html, 'text/html');
+
+                            var els = doc.querySelectorAll('.result');
+
+                            var results = [];
+
+                            for (var j = 0; j < els.length && results.length < 10; j++) {
+
+                                var titleEl = els[j].querySelector('.result__a');
+                                var snippetEl = els[j].querySelector('.result__snippet');
+
+                                if (!titleEl) continue;
+
+                                var rawHref = titleEl.getAttribute('href') || '';
+                                var url = rawHref;
+
+                                var m = rawHref.match(/uddg=([^&]+)/);
+                                if (m) url = decodeURIComponent(m[1]);
+
+                                results.push({
+
+                                    title: titleEl.textContent.trim(),
+                                    url: url,
+                                    displayUrl: url.replace(/^https?:\/\//, '').split('/')[0],
+                                    snippet: snippetEl ? snippetEl.textContent.trim() : ''
+
+                                });
+
+                            }
+
+                            if (results.length === 0) throw new Error();
+
+                            renderWebResults(results, q);
+
+                        })
+
+                        .catch(function () {
+
+                            tryProxy(i + 1);
+
+                        });
+
+                }
+
+                tryProxy(0);
+                return;
+
+            }
+
+
+            if (!songsLoaded) {
+
+                section.innerHTML =
+                    '<div class="status-msg"><div class="spinner"></div>Loading lyrics data…</div>';
+
+                return;
+
+            }
+
+            setTimeout(function () {
+
+                renderResults(searchLyrics(q), q);
+
+            }, 30);
+
+        }
+
+
+        function escapeRegex(s) {
+
+            return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        }
+
+
+        /* FAST SEARCH USING PRECOMPUTED FIELDS */
+
+        function searchLyrics(query) {
+
+            var terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+            var qLower = query.toLowerCase();
+
+            var scored = [];
+
+            for (var i = 0; i < songs.length; i++) {
+
+                var s = songs[i];
+
+                var score = 0;
+
+                var t = s._t;
+                var a = s._a;
+                var l = s._l;
+
+                if (t.includes(qLower)) score += 30;
+                if (a.includes(qLower)) score += 20;
+                if (l.includes(qLower)) score += 5;
+
+                for (var j = 0; j < terms.length; j++) {
+
+                    if (t.includes(terms[j])) score += 10;
+                    if (a.includes(terms[j])) score += 5;
+                    if (l.includes(terms[j])) score += 1;
+
+                }
+
+                if (score > 0) {
+
+                    scored.push({ song: s, score: score });
+
+                }
+
+            }
+
+            scored.sort(function (a, b) {
+
+                return b.score - a.score;
+
+            });
+
+            return scored.slice(0, 10).map(function (x) {
+
+                return x.song;
+
+            });
+
+        }
+
+
+        function getSnippet(lyrics, query) {
+
+            var terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+            var lower = lyrics.toLowerCase();
+
+            var bestPos = -1;
+
+            for (var i = 0; i < terms.length; i++) {
+
+                var pos = lower.indexOf(terms[i]);
+
+                if (pos !== -1 && (bestPos === -1 || pos < bestPos))
+                    bestPos = pos;
+
+            }
+
+            if (bestPos === -1) return '';
+
+            var start = Math.max(0, bestPos - 40);
+
+            var snippet = lyrics.substring(start, start + 150);
+
+            if (start > 0) snippet = '…' + snippet;
+            if (start + 150 < lyrics.length) snippet += '…';
+
+            for (var i = 0; i < terms.length; i++) {
+
+                var re = new RegExp('(' + escapeRegex(terms[i]) + ')', 'gi');
+
+                snippet = snippet.replace(re, '<mark>$1</mark>');
+
+            }
+
+            return snippet;
+
+        }
+
+
+        function renderResults(results, q) {
+
+            var section = document.getElementById('results-section');
+
+            if (!results.length) {
+
+                section.innerHTML =
+                    '<div class="status-msg">No results for "<strong>' + q + '</strong>"</div>';
+
+                return;
+
+            }
+
+            var html =
+                '<div class="results-meta">' + results.length + ' results for "<strong>' + q + '</strong>"</div>';
+
+            for (var i = 0; i < results.length; i++) {
+
+                var r = results[i];
+
+                var snippet = getSnippet(r.Lyrics, q);
+
+                html +=
+
+                    '<div class="result-card">' +
+
+                    '<div class="result-title">' +
+                    '<a href="song.html?id=' + r.__id + '" target="_blank">' + r.Song + '</a>' +
+                    '</div>' +
+
+                    '<div class="result-snippet">' +
+
+                    '🎤 ' + r.Artist +
+                    ' • 📅 ' + r.Year +
+                    ' • 🏆 #' + r.Rank +
+
+                    '<br><br>' +
+
+                    (snippet || '<em>No snippet available</em>') +
+
+                    '</div>' +
+
+                    '</div>';
+
+            }
+
+            section.innerHTML = html;
+
+        }
+
+
+        function renderWebResults(results, q) {
+
+            var section = document.getElementById('results-section');
+
+            var html =
+                '<div class="results-meta">' + results.length + ' results for "<strong>' + q + '</strong>"</div>';
+
+            for (var i = 0; i < results.length; i++) {
+
+                var r = results[i];
+
+                html +=
+
+                    '<div class="result-card">' +
+
+                    '<div class="result-url">' + r.displayUrl + '</div>' +
+
+                    '<div class="result-title">' +
+                    '<a href="' + r.url + '" target="_blank">' + r.title + '</a>' +
+                    '</div>' +
+
+                    '<div class="result-snippet">' + r.snippet + '</div>' +
+
+                    '</div>';
+
+            }
+
+            section.innerHTML = html;
+
+        }
+
+    </script>
+
+</body>
+
+</html>
