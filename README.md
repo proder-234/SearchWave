@@ -1,6 +1,6 @@
 # **SearchWave- Web & Music Search Engine**
 
-# A lightweight, client-side search engine with two modes: live web search powered by DuckDuckGo, and a local lyrics/music search engine backed by a pre-indexed dataset of songs.
+## A lightweight, client-side search engine with two modes: live web search powered by DuckDuckGo, and a local lyrics/music search engine backed by a pre-indexed dataset of songs.
 
 **Live demo:** [https://userweb.cs.txstate.edu/\~mkj82/](https://userweb.cs.txstate.edu/~mkj82/)
 
